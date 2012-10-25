@@ -1,5 +1,10 @@
+import cookielib
 import irclib
-from urllib2 import urlopen, URLError
+import re
+from ssl import SSLError
+from urllib2 import urlopen, URLError, Request, HTTPCookieProcessor, build_opener
+from urllib import urlencode
+from httplib import BadStatusLine
 
 irclib.DEBUG = True
 network = 'uk.ircnet.org'
@@ -23,7 +28,9 @@ class WhdBot():
         self.irc.process_forever()
 
     def handlePubMsg(self, connection, event):
-        print event.arguments()[0], 'err'
+        p = re.compile('.*?(\d{5}\d?).*?')
+        m = p.match(event.arguments()[0])
+        print event.arguments()
         if event.arguments()[0] == '!iswhddead':
             if self.whdDead:
                 print ">#whddead 'yes'"
@@ -31,11 +38,22 @@ class WhdBot():
             else:
                 print ">#whddead 'no'"
                 connection.privmsg(channel, 'No')
+        elif m:
+            connection.privmsg(channel, "https://helpdesk.its.qmul.ac.uk/helpdesk/WebObjects/Helpdesk.woa/wa/ticket?ticketId={0}".format(m.group(1)))
 
     def checkWhd(self):
         try:
             print 'checking whd'
-            response = urlopen('https://helpdesk.its.qmul.ac.uk', timeout=10)
+            cj = cookielib.CookieJar()
+            opener = build_opener(HTTPCookieProcessor(cj))
+            response = opener.open('https://helpdesk.its.qmul.ac.uk/helpdesk/WebObjects/Helpdesk.woa', timeout=20)
+            html = response.read()
+            q = re.compile('.*?(https://helpdesk.its.qmul.ac.uk/helpdesk/WebObjects/Helpdesk.woa/wo/\w+/0.11.1.5.11).*?', re.DOTALL)
+            n = q.match(html)
+            formData = urlencode({'userName':'test','password':'password'})
+            post = opener.open(n.group(1), data=formData, timeout=20)
+            print post.read()
+
             if self.whdDead:
                 self.whdDead = False
                 self.connection.privmsg(channel, 'It\'s back!')
@@ -46,7 +64,8 @@ class WhdBot():
                 self.connection.privmsg(channel, 'I think whd is dead')
                 self.whdDead = True
             self.connection.execute_delayed(10, self.checkWhd)
+        except SSLError,BadStatusLine:
+            pass
         self.connection.execute_delayed(30, self.checkWhd)
 
 whdbot = WhdBot()
-
